@@ -1,0 +1,167 @@
+---
+title: "respo script"
+format: html
+---
+####### Respo Code for P:R Rates on Seawater ######
+#### Adpted from Respo Code for PI Light and Dark Runs #####
+### Created by: Nyssa Silbiger; Last updated on: 2025-07-26 ###
+## Adpated 2025-04-26 ###
+
+############## Introduction to code/script ####################
+## this script will help us process the raw data gathered during respirometry runs. 
+## need to change for specific project/experimental variables 
+
+### Install Packages #####
+## if these packages are not yet installed, install them 
+## great for updates or new users 
+```{r}
+if ("segmented" %in% rownames(installed.packages()) == 'FALSE') install.packages('segmented')
+if ("plotrix" %in% rownames(installed.packages()) == 'FALSE') install.packages('plotrix')
+if ("gridExtra" %in% rownames(installed.packages()) == 'FALSE') install.packages('gridExtra')
+if ("LoLinR" %in% rownames(installed.packages()) == 'FALSE') devtools::install_github('colin-olito/LoLinR')
+if ("chron" %in% rownames(installed.packages()) == 'FALSE') install.packages('chron')
+if ("tidyverse" %in% rownames(installed.packages()) == 'FALSE') install.packages('tidyverse')
+if ("here" %in% rownames(installed.packages()) == 'FALSE') install.packages('here')
+if ("patchwork" %in% rownames(installed.packages()) == 'FALSE') install.packages('patchwork')
+if ("PNWColors" %in% rownames(installed.packages()) == 'FALSE') install.packages('PNWColors')
+
+```
+
+#Read in required libraries
+##### Include Versions of libraries
+```{r}
+library(segmented)
+library(plotrix)
+library(gridExtra)
+library(LoLinR)
+library(lubridate)
+library(chron)
+library(patchwork)
+library(tidyverse)
+library(here)
+library(PNWColors)
+library(ggrepel)
+library(reshape2)
+library(viridis)
+library(car)
+library(future)
+library(furrr)
+library(dplyr)
+```
+
+
+############# now it's time to code ############
+################################################
+# get the file path
+#set the path to all of the raw oxygen datasheets
+## these are saved onto the computer in whatever file path/naming scheme you saved things to 
+#you can change to individual run folders if needed
+```{r}
+path.p<-here("data","respofiles","RawO2", "RUN2") 
+```
+#the location of all your respirometry files
+
+# bring in all of the individual files
+```{r}
+filenames_final<-basename(list.files(path = path.p, pattern = "csv$", recursive = TRUE)) 
+```
+#list all csv file names in the folder and subfolders
+
+#basename above removes the subdirectory name from the file, re-name as file.names.full
+```{r}
+file.names.full<-list.files(path = path.p, pattern = "csv$", recursive = TRUE) 
+```
+
+#empty chamber volume
+```{r}
+ch.vol <- 500 #mL #of small chambers 
+```
+
+######### Load and tidy files ###############
+############################################
+#Load your respiration data file, with all the times, water volumes(mL), #not doing dry weight just SA
+#RespoMeta <- read_csv(here("Data","RespoFiles","Respo_Metadata_SGDDilutions_Cabral_Varari.csv"))
+```{r}
+BioData <- read_csv(here("data","respofiles","Fragment_Measurements_Vest.csv"))
+RespoMeta <- read_csv(here("data","respofiles","Respo_meta.csv"))
+#View(BioData)
+```
+
+# join the data together
+
+```{r}
+Sample_Info <- left_join(RespoMeta, BioData)
+#View(Sample_Info)
+```
+
+##### Make sure times are consistent ####
+# make start and stop times real times, so that we can join the respo output and sample_info data frames
+```{r}
+Sample_Info <- Sample_Info %>% 
+  #drop_na(sample_ID) %>% 
+  unite(date,start_time,col="start_time",remove=F, sep=" ") %>% 
+  unite(date,stop_time,col="stop_time",remove=F, sep=" ") %>%
+  mutate(start_time = mdy_hms(start_time)) %>% 
+  mutate(stop_time = mdy_hms(stop_time)) %>% 
+  mutate(date = mdy(date))
+```
+
+
+
+#generate a 4 column dataframe with specific column names
+# data is in umol.L.sec
+```{r}
+n_light_levels<-2 # number of unique light levels
+
+RespoR <- tibble(.rows =length(filenames_final)*n_light_levels,
+                 sample_ID = NA,
+                 Intercept = NA,
+                 umol.L.sec = NA,
+                 Temp.C = NA,
+                 Light_level = NA,
+                 Light_value = NA,
+                 run_block = NA)
+```
+
+######### Create a for loop! ###############
+############################################
+```{r}
+###forloop#####
+for(i in 1:length(filenames_final)) {
+  FRow <- as.numeric(which(Sample_Info$FileID_csv==filenames_final[i])) # stringsplit this renames our file
+ 
+   Respo.Data1 <- read.csv(skip=1,file.path(path.p, paste0(file.names.full[i]))) %>% # reads in each file in list
+    dplyr::select(Date, Time, Value, Temp) %>% # keep only what we need: Time stamp per 1sec, Raw O2 value per 1sec, in situ temp per 1sec
+    unite(Date,Time,col="Time",remove=T, sep = " ") %>%
+    drop_na() %>% 
+    mutate(Time = mdy_hms(Time)) #%>% # convert time
+    #mutate(help = i) ##if stuck in forloop with error from filter, can check RespoR and see at what row the forloop stopped working  
+```
+
+## cut the data by start and stop times from metadata
+#Use start time of each light step from the metadata to separate data by light stop
+
+```{r}
+ oxy_subsets <- Sample_Info[FRow,] %>%
+      pmap(function(Light_level, start_time, stop_time, ...) {
+        data <- Respo.Data1  %>%
+          filter(Time >= start_time & Time <= stop_time) %>%
+          arrange(Time) %>%
+          mutate(t_sec = as.numeric(difftime(Time, first(Time), units = "secs"))) %>% #keep everything in seconds
+          mutate(Light_level = Light_level) %>%
+          filter(t_sec > 120) %>%                          # drop first 2 min (120 s)
+          filter(row_number() %% 10 == 0)                  # keep every 10th row
+      #   data <- Respo.Data1  %>%
+      #   filter(Time >= start_time & Time <= stop_time) %>%
+      #   mutate(sec = row_number()) %>%# add an id for each row to help remove the first few mins
+      #   mutate(Light_level = Light_level,
+      #          sec = sec) %>%
+      #   filter(sec > 60)  %>%# delete the first 2 mins of data assuming freq of 0.5 Hz
+      #   mutate(row_number = row_number()) %>%
+      #   filter(row_number %% 10 == 0) %>%  # keep every 10th row only to thin the data
+      #   select(-row_number) %>%
+      #   mutate(sec2 = row_number())  #update the row numbers
+      # #return(subset)
+    }) 
+```
+
