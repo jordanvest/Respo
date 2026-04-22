@@ -57,7 +57,7 @@ library(dplyr)
 ## these are saved onto the computer in whatever file path/naming scheme you saved things to 
 #you can change to individual run folders if needed
 ```{r}
-path.p<-here("data","respofiles","RawO2", "RUN2") 
+path.p<-here("data","respofiles","RawO2") 
 ```
 #the location of all your respirometry files
 
@@ -126,7 +126,6 @@ RespoR <- tibble(.rows =length(filenames_final)*n_light_levels,
 ######### Create a for loop! ###############
 ############################################
 ```{r}
-###forloop#####
 for(i in 1:length(filenames_final)) {
   FRow <- as.numeric(which(Sample_Info$FileID_csv==filenames_final[i])) # stringsplit this renames our file
  
@@ -135,14 +134,13 @@ for(i in 1:length(filenames_final)) {
     unite(Date,Time,col="Time",remove=T, sep = " ") %>%
     drop_na() %>% 
     mutate(Time = mdy_hms(Time)) #%>% # convert time
-    #mutate(help = i) ##if stuck in forloop with error from filter, can check RespoR and see at what row the forloop stopped working  
-```
+    
+   #mutate(help = i) ##if stuck in forloop with error from filter, can check RespoR and see at what row the forloop stopped working  
 
-## cut the data by start and stop times from metadata
-#Use start time of each light step from the metadata to separate data by light stop
-
-```{r}
- oxy_subsets <- Sample_Info[FRow,] %>%
+  ## cut the data by start and stop times from metadata
+  #Use start time of each light step from the metadata to separate data by light stop
+  
+  oxy_subsets <- Sample_Info[FRow,] %>%
       pmap(function(Light_level, start_time, stop_time, ...) {
         data <- Respo.Data1  %>%
           filter(Time >= start_time & Time <= stop_time) %>%
@@ -163,5 +161,93 @@ for(i in 1:length(filenames_final)) {
       #   mutate(sec2 = row_number())  #update the row numbers
       # #return(subset)
     }) 
+   
+ 
+  # Combine into one long dataframe with ID labels
+  combined_oxy <- bind_rows(oxy_subsets)
+     
+  # Get the filename without the .csv
+  rename<- sub("_O2.csv","", filenames_final[i])
+  
+    ### plot and export the thinned data ####
+  p1<- ggplot(combined_oxy, aes(x = t_sec, y = Value)) +
+    geom_point(color = "dodgerblue") +
+    labs(
+      x = 'Time (seconds)',
+      y = expression(paste(' O'[2],' (',mu,'mol/L)')),
+      title = "original"
+    )+
+    facet_wrap(~Light_level, scales = "free_y")
+  
+  
+  ##Olito et al. 2017: It is running a bootstrapping technique and calculating the rate based on density
+  #option to add multiple outputs method= c("z", "e "pc")
+  
+  # Define function for fitting LoLinR regressions to be applied to all intervals for all samples
+  fit_reg <- function(data) {
+    rankLocReg(xall = data$t_sec, yall = data$Value, 
+               alpha = 0.2, method = "pc", verbose = FALSE)
+  }
+  
+   # Setup for parallel processing
+  future::plan(multisession)
+  
+  # Map LoLinR function onto all intervals of each sample's thinned dataset
+  df <- combined_oxy %>%
+    dplyr::select(t_sec, Value, Light_level, Temp)%>%
+    mutate(t_sec = as.numeric(t_sec))%>%
+    nest_by(Light_level) %>%
+    ungroup()%>%
+    mutate(regs = furrr::future_map(data, fit_reg), # run the LOLinR fit in parallel
+           Temp.C = map_dbl(map(data, "Temp"), mean),# get the mean temperature
+           RegStats =map(regs, function(x){ # extract the intercept and slope for the parameters
+             x$allRegs %>%
+               slice(1) %>%
+               select(Intercept = b0,
+                      umol.L.sec = b1)
+           }) )
+
+    
+ #  Plot regression diagnostics
+ 
+  for(j in 1:length(df$Light_level)){
+   pdf(paste0(here("output"),"/",rename,"_",j,".pdf" ))
+    plot(df$regs[[j]])
+    dev.off()
+  }
+  # pdf(paste0(here("Output"),"/",rename,".pdf"))
+  # plot(regs)
+  # dev.off() 
+  
+  df<-df %>%
+    dplyr::select(Light_level,Temp.C, RegStats ) %>%
+    unnest(RegStats) %>%
+    mutate(sample_ID = rename) %>%
+    left_join(Sample_Info[FRow,] %>%
+                select(sample_ID, Light_level, Light_value, run_block)) # make sure the light value (or whatever other metadata you want) is in the final DF
+    
+  ################################
+  # fill in all the O2 consumption and rate data
+  
+  RespoR[FRow,"Temp.C"]<-df$Temp.C
+  RespoR[FRow,"sample_ID"]<-df$sample_ID
+  RespoR[FRow,"Intercept"]<-df$Intercept
+  RespoR[FRow,"umol.L.sec"]<-df$umol.L.sec
+  RespoR[FRow,"Light_level"]<-df$Light_level
+  RespoR[FRow,"Light_value"]<-df$Light_value
+  RespoR[FRow,"run_block"]<-df$run_block
+
+ }  
+```
+
+
+```{r}
+ #export raw data and read back in as a failsafe 
+#this allows me to not have to run the for loop again !!!!!
+write_csv(RespoR, here("data","respofiles","Respo_RUN2.csv"))  
+```
+
+```{r}
+RespoR <- read_csv(here("data","respofiles","Respo_RUN2.csv"))
 ```
 
