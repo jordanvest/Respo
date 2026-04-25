@@ -53,11 +53,12 @@ library(dplyr)
 ############# now it's time to code ############
 ################################################
 # get the file path
+
+```{r}
+path.p<-here("data","respofiles","RawO2", "RUN2") 
 #set the path to all of the raw oxygen datasheets
 ## these are saved onto the computer in whatever file path/naming scheme you saved things to 
 #you can change to individual run folders if needed
-```{r}
-path.p<-here("data","respofiles","RawO2") 
 ```
 #the location of all your respirometry files
 
@@ -82,8 +83,8 @@ ch.vol <- 500 #mL #of small chambers
 #Load your respiration data file, with all the times, water volumes(mL), #not doing dry weight just SA
 #RespoMeta <- read_csv(here("Data","RespoFiles","Respo_Metadata_SGDDilutions_Cabral_Varari.csv"))
 ```{r}
-BioData <- read_csv(here("data","respofiles","Fragment_Measurements_Vest.csv"))
-RespoMeta <- read_csv(here("data","respofiles","Respo_meta.csv"))
+BioData <- read_csv(here("data","respofiles","Fragment_Measurements_RUN2.csv"))
+RespoMeta <- read_csv(here("data","respofiles","Respo_meta_RUN2.csv"))
 #View(BioData)
 ```
 
@@ -98,7 +99,7 @@ Sample_Info <- left_join(RespoMeta, BioData)
 # make start and stop times real times, so that we can join the respo output and sample_info data frames
 ```{r}
 Sample_Info <- Sample_Info %>% 
-  #drop_na(sample_ID) %>% 
+  drop_na(sample_ID) %>% 
   unite(date,start_time,col="start_time",remove=F, sep=" ") %>% 
   unite(date,stop_time,col="stop_time",remove=F, sep=" ") %>%
   mutate(start_time = mdy_hms(start_time)) %>% 
@@ -133,7 +134,8 @@ for(i in 1:length(filenames_final)) {
     dplyr::select(Date, Time, Value, Temp) %>% # keep only what we need: Time stamp per 1sec, Raw O2 value per 1sec, in situ temp per 1sec
     unite(Date,Time,col="Time",remove=T, sep = " ") %>%
     drop_na() %>% 
-    mutate(Time = mdy_hms(Time)) #%>% # convert time
+    mutate(Time = mdy_hms(Time)) # %>% # convert time    
+
     
    #mutate(help = i) ##if stuck in forloop with error from filter, can check RespoR and see at what row the forloop stopped working  
 
@@ -211,11 +213,11 @@ for(i in 1:length(filenames_final)) {
  #  Plot regression diagnostics
  
   for(j in 1:length(df$Light_level)){
-   pdf(paste0(here("output"),"/",rename,"_",j,".pdf" ))
+   pdf(paste0(here("output","RUN2"),"/",rename,"_",j,".pdf" ))
     plot(df$regs[[j]])
     dev.off()
   }
-  # pdf(paste0(here("Output"),"/",rename,".pdf"))
+  # pdf(paste0(here("output","RUN2"),"/",rename,".pdf"))
   # plot(regs)
   # dev.off() 
   
@@ -236,7 +238,7 @@ for(i in 1:length(filenames_final)) {
   RespoR[FRow,"Light_level"]<-df$Light_level
   RespoR[FRow,"Light_value"]<-df$Light_value
   RespoR[FRow,"run_block"]<-df$run_block
-
+  
  }  
 ```
 
