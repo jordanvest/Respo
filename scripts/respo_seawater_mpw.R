@@ -265,10 +265,10 @@ RespoR_PR <- read_csv(here("data","respofiles","PnR_rates.csv"))
 
 #dev.off() # may need if plot doesn't run?
 PR_plot <- RespoR_PR %>% 
-  ggplot(aes(x = site_ID, y = Values, group=site_ID, color = site_ID)) +
+  ggplot(aes(x = site_ID, y = Values, group=site_ID, color = site_ID, shape = run_block)) +
   geom_point() +
   geom_line() +
-  facet_wrap(~PR, scales = "free") +
+  facet_wrap(run_block~PR, scales = "free") +
   theme_bw() +
   labs(x = "Site", y = "umol.hr")+
   theme(strip.background = element_rect(fill = "white"),
