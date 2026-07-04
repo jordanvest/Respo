@@ -46,7 +46,7 @@ library(dplyr)
 
 #set the path to all of the raw oxygen datasheets
 ## these are saved onto the computer in whatever file path/naming scheme you saved things to 
-path.p<-here("data","respofiles","RawO2", "MPW") #the location of all your respirometry files
+path.p<-here("data","respofiles","RawO2", "MPW", "MPW_RUN3") #the location of all your respirometry files
 #you can change to individual run folders if needed
 
 # bring in all of the individual files
@@ -128,8 +128,8 @@ for(i in 1:length(filenames_final)) {
         arrange(Time) %>%
         mutate(t_sec = as.numeric(difftime(Time, first(Time), units = "secs"))) %>% #keep everything in seconds
         mutate(light_dark = light_dark) %>%
-        filter(t_sec > 120)                          # drop first 2 min (120 s)
-        #filter(row_number() %% 10 == 0)                  # keep every 10th row - @Jordan not doing this bc we did every 2min of data here
+        filter(t_sec > 120) %>%                         # drop first 2 min (120 s)
+        filter(row_number() %% 10 == 0)                  # keep every 10th row - @Jordan not doing this bc we did every 2min of data here
       # now t_sec increments by ~20 s for your kept rows
       #   filter(Time >= start_time & Time <= stop_time) %>%
       #   mutate(sec = row_number()) %>%# add an id for each row to help remove the first few mins
@@ -197,7 +197,6 @@ for(i in 1:length(filenames_final)) {
     plot(df$regs[[j]])
     dev.off() 
   }
-  
   
   df<- df %>%
     dplyr::select(Temp.C,light_dark,RegStats ) %>%
